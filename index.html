@@ -1984,10 +1984,11 @@ const Player = {
       p.addListener('ready', ({ device_id }) => { clearTimeout(t); this.deviceId = device_id; this.ready = true; res(); });
       p.addListener('initialization_error', e => { clearTimeout(t); rej(new Error(e.message)); });
     });
-    p.addListener('not_ready', () => { this.ready = false; });
+    p.addListener('not_ready', () => { this.ready = false; toast('Плеер SPINDROP отключился — переподключаюсь…'); setTimeout(() => { try { p.connect(); } catch { } }, 1500); });
+    p.addListener('autoplay_failed', () => toast('Браузер заблокировал автозапуск — нажми ▶ (и разреши звук для сайта)', 6000));
     p.addListener('authentication_error', e => toast('Авторизация: ' + e.message));
     p.addListener('account_error', () => toast('Для браузерного плеера нужен Spotify Premium'));
-    p.addListener('playback_error', e => console.warn('playback_error', e));
+    p.addListener('playback_error', e => { console.warn('playback_error', e); toast('Ошибка воспроизведения: ' + (e && e.message || 'неизвестно'), 5000); });
     p.addListener('player_state_changed', s => this._fromSdk(s));
     const ok = await p.connect();
     if (!ok) throw new Error('connect() вернул false');
@@ -2060,6 +2061,19 @@ const Player = {
       else throw e;
     }
     this._set({ track, pos: 0, dur: track.dur, paused: false });
+    if (this.kind === 'sdk') this._watch(track);
+  },
+  // сторож: если трек не пошёл (автоплей/другое устройство) — пробуем «resume» и честно говорим, что не так
+  async _watch(track) {
+    await sleep(3500);
+    if (!this.sdk || !this.state.track || this.state.track.id !== track.id || this.state.paused) return;
+    try {
+      let st = await this.sdk.getCurrentState();
+      if (st && !st.paused && st.position > 300) return;
+      await this.sdk.resume(); await sleep(1500);
+      st = await this.sdk.getCurrentState();
+      if (!st || st.paused || st.position < 300) toast('Трек не стартует. Проверь: не играет ли этот же аккаунт на другом устройстве (телефон, другая вкладка SPINDROP) и разрешён ли звук сайту.', 8000);
+    } catch { /* ignore */ }
   },
 
   async toggle() {
